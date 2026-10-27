@@ -16,5 +16,6 @@ systemctl stop display-manager 2>/dev/null; sleep 2
 sh "$S/scripts/init-premount/arc-rebar"
 systemctl start display-manager 2>/dev/null
 echo; echo "== result =="; dmesg | grep 'arc-rebar: PLAN' | tail -1
-gpu=$(dmesg | grep -o 'arc-rebar: PLAN: done gpu=[0-9a-f:.]*' | tail -1 | sed 's/.*gpu=//')
-[ -n "$gpu" ] && lspci -vv -s "${gpu#0000:}" | grep -E 'Region 2|current size'
+for gpu in $(dmesg | sed -n 's/.*arc-rebar: PLAN\[\([0-9a-f:.]*\)\]: done.*/\1/p'); do
+  lspci -vv -s "${gpu#0000:}" | grep -E 'Region 2|current size'
+done

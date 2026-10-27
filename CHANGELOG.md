@@ -4,11 +4,17 @@ All revisions on 2026-09-05, developed and verified on a Supermicro X9DRH-7TF
 (C602, 2x Xeon E5-2670 v2, AMI BIOS 3.2) with an Intel Arc B580 12 GB,
 Debian 13, kernel 7.1.8, xe driver. 1.0.3 is the first published release.
 
-## Unreleased — docs
+## 1.0.3.RvTx.1 - dyb-tech.com - fork — multi-GPU
+- Multi-GPU: the boot script now processes every Intel VGA device with a ReBAR
+  capability instead of only the first. Each GPU is checked and fixed in its own
+  subshell, logs a per-GPU `arc-rebar: PLAN[<dev>]: <verdict>` line, and the run
+  ends with a single aggregate `PLAN: <verdict> gpus=<n>` line, so a card that
+  fails a safety check no longer prevents the others from being patched.
+  `rebar.dev=` accepts a comma-separated list.
 - GPU firmware updates ruled out by direct test, not assumption: FWCODE
   21.1137 → 21.1182 and OptionROM 23.1051.0.0 → 23.1066.0.0 (LVFS, Sept 2026)
   leave the power-up BAR size field unchanged, the kernel resize still fails
-  `-ENOSPC`, and the hook still has to fire. Recorded in ROOT-CAUSE and README.
+  `-ENOSPC`, and the hook still has to fire.
 
 ## 1.0.3 — packaging and licence
 - Licence: commercial and enterprise use requires separate licensing (§9), and Commercial Use

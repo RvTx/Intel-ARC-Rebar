@@ -1,6 +1,7 @@
 # arc-rebar — Resizable BAR for Intel Arc GPUs on firmware without ReBAR support
 
 Copyright (c) 2026 Rod Burlamaqui. Free for personal use; **commercial and enterprise use requires separate licensing** — see [LICENSE](LICENSE) §9.
+Forked by RvTx - dyb-tech.com. For multiple GPUs support at a time on same system.
 
 > **USE AT YOUR OWN RISK. NO WARRANTY.** Provided "as is". The author accepts no
 > liability for data loss, hardware damage, downtime or any other loss arising
@@ -108,7 +109,7 @@ mounted. In order:
 | Step | Action | Refuses / stops if |
 |---|---|---|
 | 0 | Read the kernel command line | `norebar` present → does nothing |
-| 1 | **Find the GPU**: first PCI device with vendor `8086`, class VGA, and a Resizable BAR extended capability (or the one named by `rebar.dev=`) | none found → does nothing |
+| 1 | **Find the GPU(s)**: every PCI device with vendor `8086`, class VGA, and a Resizable BAR extended capability (or those named by `rebar.dev=`). Steps 2–11 then run per GPU, each in its own subshell — one card's failure never masks another's | none found → does nothing |
 | 2 | **Find its root port**: the first hop below the host bridge in the GPU's sysfs path. Require the path to be exactly *root port → card switch upstream → card switch downstream → GPU* | deeper path (external switch, riser, Thunderbolt) → `skip unexpected-topology` |
 | 3 | **Check the root port carries only this card**: every device beneath it must be Intel and be a bridge, the GPU, or the card's HDMI audio | anything else (an NVMe, a NIC…) → `skip shared-root-port` |
 | 4 | **Read the card's ReBAR capability**: supported sizes bitmask and current size field. Target = the largest the card supports (or `rebar.size=`) | — |
@@ -120,8 +121,9 @@ mounted. In order:
 | 10 | **Rescan** (`echo 1 > /sys/bus/pci/rescan`). The kernel re-enumerates the card from scratch. Because BAR2 now *advertises* the big size and nothing is pinned, it allocates BAR0 and the full-size BAR2 together into a fresh window. udev re-binds `xe`, which now sees the full aperture | — |
 | 11 | **Verify** BAR2 got an address. If not, **roll back**: write the original size field, remove and rescan again, so the machine ends the boot on the old 256 MB rather than with no GPU | rollback also fails → `FAILED` (boot still continues; use `norebar`) |
 
-Every exit path returns 0 — **boot is never failed**. The verdict is always in
-the kernel log as `arc-rebar: PLAN: <verdict>`. `pci=realloc` on the kernel
+Every exit path returns 0 — **boot is never failed**. Each GPU logs its own
+`arc-rebar: PLAN[<dev>]: <verdict>` line, followed by one aggregate
+`arc-rebar: PLAN: <verdict> gpus=<n>` line. `pci=realloc` on the kernel
 command line is required so the rescan is allowed to size the bridge windows.
 
 **What a fixed boot looks like** (real log from the test machine):
@@ -135,6 +137,25 @@ command line is required so the rescan is allowed to size the bridge windows.
 [    5.753] arc-rebar: wrote ECAP_REBAR ctl=0x00000e22; removing 0000:80:03.0 and rescanning
 [    7.861] xe 0000:86:00.0: [drm] VISIBLE VRAM: 0x0000381000000000, 0x0000000400000000   <-- re-probe on the 16G window
 [   11.209] arc-rebar: PLAN: done gpu=0000:86:00.0 bar2=16384M
+```
+
+Example with multiple GPUs
+```
+== arc-rebar verify (boot 2026-10-27 02:56:11) ==
+  [ok]   pci=realloc active
+  [ok]   hook installed
+  [ok]   boot verdict: done gpus=2 results: 0000:04:00.0=done 0000:89:00.0=done
+  [ok]   0000:04:00.0 BAR2 = 16384 MiB (size field 14 = card maximum)
+  [ok]   0000:04:00.0 driver: xe
+  [ok]   0000:04:00.0 DevSta: no correctable/fatal/unsupported-request errors
+  [ok]   0000:89:00.0 BAR2 = 16384 MiB (size field 14 = card maximum)
+  [ok]   0000:89:00.0 driver: xe
+  [ok]   0000:89:00.0 DevSta: no correctable/fatal/unsupported-request errors
+  [ok]   xe last probe VISIBLE VRAM: 0x0000384000000000, 0x0000000400000000
+  [ok]   no AER error reports
+  [ok]   vulkan: memoryHeaps: count = 2                 size = 12809404416 (0x2fb800000) (11.93 GiB)            flags: count = 1
+
+RESULT: PASS
 ```
 
 The `xe` driver loads from the initramfs *before* this script runs, so its first
@@ -350,7 +371,8 @@ Run them before and after to capture your own before/after numbers.
   itself, the script sees "already at target" and exits.
 - **Rollback.** If the new BAR cannot be placed, it restores the old size rather
   than leaving the GPU without an address.
-- Kernel command-line knobs: `norebar`; `rebar.dev=0000:86:00.0` to choose a GPU;
+- Kernel command-line knobs: `norebar`; `rebar.dev=0000:86:00.0` to choose a GPU
+  (comma-separated for several, e.g. `rebar.dev=0000:03:00.0,0000:86:00.0`);
   `rebar.size=N` to force a size field (2^(N+20) bytes: 14 = 16 GB, 13 = 8 GB, 12 = 4 GB).
 - Known realistic failure modes and what to do — including the possibility of a
   hang at the rescan on chipsets that dislike root-port re-enumeration (power
